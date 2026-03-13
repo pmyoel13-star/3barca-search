@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BARCA.SEARCH</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+
+        <h1>
+            <span>B</span><span>A</span><span>R</span><span>C</span><span>A</span>
+            <span>.</span><span>S</span><span>E</span><span>A</span><span>R</span>
+            <span>C</span><span>H</span>
+        </h1>
+
+        <!-- TAB MENU -->
+        <div class="tab-menu">
+            <button class="tab active" onclick="switchTab('search', this)">🔍 Pencarian</button>
+            <button class="tab" onclick="switchTab('bfs', this)">🕷️ BFS Crawler</button>
+        </div>
+
+        <!-- TAB 1: PENCARIAN BIASA -->
+        <div id="tab-search">
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="Tulis sesuatu nyong..." />
+                <button onclick="doSearch()">🔍</button>
+            </div>
+            <div class="button-group">
+                <button class="btn-style" onclick="doSearch()">Cari Sekarang</button>
+                <button class="btn-style btn-history" onclick="toggleHistory()">📋 Riwayat</button>
+            </div>
+            <div class="history-panel" id="historyPanel" style="display:none;">
+                <div class="history-header">
+                    <span>🕓 Riwayat Pencarian</span>
+                    <button class="btn-clear" onclick="clearHistory()">🗑 Hapus Semua</button>
+                </div>
+                <ul id="historyList"></ul>
+            </div>
+        </div>
+
+        <!-- TAB 2: BFS CRAWLER -->
+        <div id="tab-bfs" style="display:none;">
+            <div class="bfs-info">
+                <strong>🧠 Apa itu BFS Crawler?</strong><br>
+                BFS (Breadth-First Search) menelusuri semua link di suatu website
+                lapis per lapis — dimulai dari halaman utama, lalu ke semua link di
+                halaman itu, lalu ke link-link berikutnya, dan seterusnya.
+            </div>
+            <div class="search-box">
+                <input type="text" id="bfsInput" placeholder="Masukkan URL, contoh: https://example.com" />
+            </div>
+            <div class="bfs-options">
+                <label style="color:white; font-size:14px;">Maksimal halaman:</label>
+                <select id="maxPages" class="select-style">
+                    <option value="5">5 halaman</option>
+                    <option value="10" selected>10 halaman</option>
+                    <option value="15">15 halaman</option>
+                    <option value="20">20 halaman</option>
+                </select>
+            </div>
+            <div class="button-group">
+                <button class="btn-style btn-bfs" onclick="doBFSCrawl()">🕷️ Mulai Crawl BFS</button>
+            </div>
+        </div>
+
+        <!-- LOADING -->
+        <div id="loading" style="display:none;">
+            <div class="spinner"></div>
+            <p id="loadingText" style="color:white;">Memproses...</p>
+        </div>
+
+        <!-- HASIL -->
+        <div id="results"></div>
+    </div>
+
+    <script>
+    function switchTab(tab, btn) {
+        document.getElementById("tab-search").style.display = tab === "search" ? "block" : "none";
+        document.getElementById("tab-bfs").style.display    = tab === "bfs"    ? "block" : "none";
+        document.getElementById("results").innerHTML = "";
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        btn.classList.add("active");
+    }
+
+    async function doSearch() {
+        const query = document.getElementById("searchInput").value.trim();
+        if (!query) { alert("Masukkan kata kunci dulu nyong!"); return; }
+        showLoading("Mencari...");
+        try {
+            const res  = await fetch("/search?q=" + encodeURIComponent(query));
+            const data = await res.json();
+            hideLoading();
+            if (data.error) { showError(data.error); return; }
+            displaySearchResults(data);
+        } catch { hideLoading(); showError("Gagal terhubung ke server!"); }
+    }
+
+    function displaySearchResults(data) {
+        if (!data.results || data.results.length === 0) {
+            document.getElementById("results").innerHTML =
+                '<p class="no-result">Tidak ada hasil untuk "<strong>' + data.query + '</strong>"</p>';
+            return;
+        }
+        let html = '<p class="result-info">Menampilkan <strong>' + data.total + '</strong> hasil untuk "<strong>' + data.query + '</strong>"</p>';
+        data.results.forEach((item, i) => {
+            html += '<div class="result-card" style="animation-delay:' + (i*0.05) + 's">' +
+                '<a href="' + item.link + '" target="_blank" class="result-title">' + item.title + '</a>' +
+                '<a href="' + item.link + '" target="_blank" class="result-url">' + item.link + '</a>' +
+                '<p class="result-snippet">' + item.snippet + '</p></div>';
+        });
+        document.getElementById("results").innerHTML = html;
+    }
+
+    async function doBFSCrawl() {
+        const url      = document.getElementById("bfsInput").value.trim();
+        const maxPages = document.getElementById("maxPages").value;
+        if (!url) { alert("Masukkan URL dulu!"); return; }
+        showLoading("🕷️ BFS sedang merayapi halaman... Mohon tunggu.");
+        try {
+            const res  = await fetch("/bfs-crawl?url=" + encodeURIComponent(url) + "&max=" + maxPages);
+            const data = await res.json();
+            hideLoading();
+            if (data.error) { showError(data.error); return; }
+            displayBFSResults(data);
+        } catch { hideLoading(); showError("Gagal crawl. Pastikan URL valid!"); }
+    }
+
+    function displayBFSResults(data) {
+        const byDepth = {};
+        data.pages.forEach(p => {
+            if (!byDepth[p.depth]) byDepth[p.depth] = [];
+            byDepth[p.depth].push(p);
+        });
+
+        let depthBadges = Object.entries(byDepth)
+            .map(([d, pages]) => '<span class="depth-badge">Lapis ' + d + ': ' + pages.length + ' halaman</span>')
+            .join(" ");
+
+        let html = '<div class="bfs-summary">' +
+            '<div class="bfs-summary-title">✅ BFS Crawl Selesai!</div>' +
+            '<p>Domain: <strong>' + data.domain + '</strong> &nbsp;|&nbsp; Total halaman: <strong>' + data.total_visited + '</strong></p>' +
+            '<div class="depth-summary">' + depthBadges + '</div></div>' +
+            '<div class="bfs-diagram"><div class="bfs-diagram-title">🗺️ Hasil Penelusuran BFS (per lapis)</div>';
+
+        Object.entries(byDepth).forEach(([depth, pages]) => {
+            html += '<div class="bfs-layer"><div class="layer-label">🔵 Lapis ' + depth + ' — ' + pages.length + ' halaman</div><div class="layer-pages">';
+            pages.forEach((p, i) => {
+                html += '<div class="bfs-node" style="animation-delay:' + (i*0.06) + 's">' +
+                    '<a href="' + p.url + '" target="_blank" class="bfs-node-title">' + (p.title || 'Tanpa Judul') + '</a>' +
+                    '<span class="bfs-node-url">' + p.url.replace(/^https?:\/\//, '') + '</span>' +
+                    '<span class="bfs-node-links">🔗 ' + p.links_found + ' link ditemukan</span></div>';
+            });
+            html += '</div></div>';
+        });
+
+        html += '</div>';
+        document.getElementById("results").innerHTML = html;
+    }
+
+    async function toggleHistory() {
+        const panel = document.getElementById("historyPanel");
+        if (panel.style.display === "none") { await loadHistory(); panel.style.display = "block"; }
+        else panel.style.display = "none";
+    }
+
+    async function loadHistory() {
+        const res  = await fetch("/history");
+        const data = await res.json();
+        const list = document.getElementById("historyList");
+        if (data.length === 0) { list.innerHTML = "<li class='history-empty'>Belum ada riwayat.</li>"; return; }
+        list.innerHTML = data.map(item =>
+            '<li onclick="searchFromHistory(\'' + item.query + '\')">' +
+            '<span class="history-query">🔍 ' + item.query + '</span>' +
+            '<span class="history-time">' + item.time + '</span></li>').join("");
+    }
+
+    async function clearHistory() {
+        if (!confirm("Hapus semua riwayat?")) return;
+        await fetch("/history/clear", { method: "DELETE" });
+        await loadHistory();
+    }
+
+    function searchFromHistory(query) {
+        document.getElementById("searchInput").value = query;
+        document.getElementById("historyPanel").style.display = "none";
+        doSearch();
+    }
+
+    function showLoading(text) {
+        document.getElementById("loadingText").textContent = text;
+        document.getElementById("loading").style.display  = "block";
+        document.getElementById("results").innerHTML      = "";
+    }
+    function hideLoading() { document.getElementById("loading").style.display = "none"; }
+    function showError(msg) { document.getElementById("results").innerHTML = '<div class="error-box">⚠️ ' + msg + '</div>'; }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("searchInput").addEventListener("keydown", e => { if (e.key === "Enter") doSearch(); });
+        document.getElementById("bfsInput").addEventListener("keydown",   e => { if (e.key === "Enter") doBFSCrawl(); });
+    });
+    </script>
+</body>
+</html>
